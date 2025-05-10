@@ -1,33 +1,45 @@
 from flask import Flask, request, jsonify
 import instaloader
+import os
 
 app = Flask(__name__)
 
-# Initialize Instaloader
-L = instaloader.Instaloader()
-
-@app.route('/download', methods=['GET'])
-def download_content():
-    url = request.args.get('url')
+@app.route('/api/download', methods=['POST'])
+def download():
+    data = request.get_json()
+    url = data.get("url")
     if not url:
-        return jsonify({"success": False, "message": "No URL provided"}), 400
+        return jsonify({"error": "Missing URL"}), 400
 
     try:
-        # Handle different types of URLs (profile, post, etc.)
-        if 'instagram.com' in url:
-            # Attempt to load Instagram post or profile based on URL
-            post = instaloader.Post.from_shortcode(L.context, url.split("/")[-2])
-            
-            # For simplicity, we return images only (you can expand it to include videos)
-            content = [{"url": edge.display_url} for edge in post.get_sidecar_nodes()]
-            
-            return jsonify({"success": True, "content": content})
-
-        else:
-            return jsonify({"success": False, "message": "Invalid URL"}), 400
-
+        shortcode = url.strip("/").split("/")[-1]
+        loader = instaloader.Instaloader(dirname_pattern="downloads", save_metadata=False)
+        post = instaloader.Post.from_shortcode(loader.context, shortcode)
+        loader.download_post(post, target=shortcode)
+        return jsonify({"message": f"Downloaded {shortcode}"}), 200
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
-if __name__ == '__main__':
-    app.run(debug=True)
+@app.route('/')
+def home():
+    return '''
+    <h1>Instagram Downloader</h1>
+    <form method="post" action="/api/download" onsubmit="submitForm(event)">
+      <input type="text" id="url" placeholder="Enter Instagram Post URL" required>
+      <button type="submit">Download</button>
+    </form>
+    <pre id="result"></pre>
+    <script>
+    async function submitForm(event) {
+        event.preventDefault();
+        const url = document.getElementById("url").value;
+        const res = await fetch("/api/download", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ url })
+        });
+        const data = await res.json();
+        document.getElementById("result").innerText = JSON.stringify(data, null, 2);
+    }
+    </script>
+    '''
